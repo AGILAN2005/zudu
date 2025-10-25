@@ -19,13 +19,17 @@ class EmbeddingManager:
             model_kwargs={"device": "cpu"},
             encode_kwargs={"normalize_embeddings": True},
         )
-    def get_embeddings(self,text:str) -> List[float]:
-        """
-        Get embeddings for a given text.
+    # def get_embeddings(self,text:str) -> List[float]:
+    #     """
+    #     Get embeddings for a given text.
         
-        Args:
-            text (str): Input text to embed."""
-        return self.embeddings(text)
+    #     Args:
+    #         text (str): Input text to embed."""
+    #     return self.embeddings(text)
+    def get_embeddings(self) -> HuggingFaceEmbeddings:
+        """Return embeddings instance"""
+        return self.embeddings
+
     def embed_text(self,text:str) -> List[float]:
         """
         Embed text using the initialized model.
