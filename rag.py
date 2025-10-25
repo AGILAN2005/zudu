@@ -3,16 +3,13 @@ from typing import List,Dict,Any,Optional
 from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
-
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from langchain.schema import Document
 from langchain_community.vectorstores import FAISS, Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_classic.chains import retrieval_qa
-from langchain_classic.prompts import PromptTemplate
-from langchain_classic.schema import Document
-
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from embeddings import get_embedding_function
-
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 load_dotenv('.env')
@@ -155,7 +152,7 @@ class VectorStoreManager:
             documents=documents,
             embedding=self.embedding_function,
         )
-        self.vector_store[store_name]=vector_store
+        self.vector_stores[store_name]=vector_store
         print(f"FAISS store '{store_name}' created with {len(documents)} documents.")
         return vector_store
     def create_chroma_store(
@@ -186,9 +183,12 @@ class VectorStoreManager:
     def save_faiss_store(self,store_name:str,path:str):
         """
         Save FAISS vector store to disk."""
-        if store_name in self.vector_store:
+        if store_name in self.vector_stores:
             self.vector_stores[store_name].save_local(path)
             print(f"FAISS store '{store_name}' saved to {path}.")
+        else:
+            print(f"Error: No FAISS store found with name '{store_name}' to save.")
+            
     def load_faiss_store(self,store_name:str,path:str)->FAISS:
         """
         Load FAISS vector store from disk.
@@ -234,13 +234,15 @@ class RAGSystem:
             api_key=os.getenv("GEMINI_API_KEY")
             if not api_key:
                 raise ValueError("GEMINI_API_KEY not set in environment variables.")
+            
+            # --- BUG FIX: Corrected model name ---
             model=model_name or "gemini-2.5-flash"
             
             return ChatGoogleGenerativeAI(
                 model=model,
                 google_api_key=api_key,
                 temperature=0.3,
-                convert_system_messages_to_human=True,
+                convert_system_message_to_human=True,
             )
         elif self.llm_provider=="llama":
             raise NotImplementedError("Llama provider not implemented yet.")
@@ -263,9 +265,10 @@ class RAGSystem:
         print(f"\n Created {len(all_chunks)} hierarchical chunks.")
 
         if self.vector_store_type=="faiss":
+            # --- BUG FIX: Changed store name to match save/load methods ---
             self.vector_store=self.vector_store_manager.create_faiss_store(
                 all_chunks,
-                store_name="faiss_index",
+                store_name="multi_doc_rag", 
             )
         elif self.vector_store_type=="chroma":
             self.vector_store=self.vector_store_manager.create_chroma_store(
@@ -284,7 +287,7 @@ class RAGSystem:
         prompt_template="""
 You are a helpful AI assistant with access to document context.
 Use the following pieces of context to answer the question at the end.
-If you can't find the answer from the documents i've uploaded then, just say that 'I couldn’t find this information in the provided documents.'
+If you can't find the answer from the documents i've uploaded then, just say that 'I could not find this information in the provided documents.'
 Context:
 {context}
 Question: {question}
@@ -296,7 +299,7 @@ Answer the question comprehensively based on the context provided
             template=prompt_template,
             input_variables=["context","question"],
         )
-        self.qa_chain=retrieval_qa.RetrievalQA.from_chain_type(
+        self.qa_chain=RetrievalQA.from_chain_type(
             llm=self.llm,
             chain_type="stuff",
             retriever=self.vector_store.as_retriever(
