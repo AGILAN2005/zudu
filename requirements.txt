@@ -1,0 +1,10 @@
+PyPDF2
+chromadb
+faiss-cpu
+langchain
+langchain_community
+langchain_google_genai
+langchain_huggingface
+llama_index
+pyPDF2
+sentence-transformers
