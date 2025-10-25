@@ -1,4 +1,3 @@
-# from langchain.embeddings import HuggingFaceEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 from typing import List
 import os
