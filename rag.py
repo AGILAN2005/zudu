@@ -228,7 +228,7 @@ class RAGSystem:
 
         self.vector_store=None
         self.qa_chain=None
-    def _initalize_llm(self,model_name:Optional[str]):
+    def _initialize_llm(self,model_name:Optional[str]):
         """Initialize LLM based on provider."""
         if self.llm_provider=="gemini":
             api_key=os.getenv("GEMINI_API_KEY")
