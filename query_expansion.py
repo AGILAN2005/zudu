@@ -59,7 +59,7 @@ class QueryExpander:
                 raise ValueError("GEMINI_API_KEY not found")
             
             return ChatGoogleGenerativeAI(
-                model=model_name or "gemini-1.5-flash",
+                model=model_name or "gemini-2.5-flash",
                 google_api_key=api_key,
                 temperature=0.7  # PATCH update: Higher temp for diversity
             )
