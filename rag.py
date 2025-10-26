@@ -447,6 +447,24 @@ Answer the question comprehensively based on the context provided
             for doc in context_docs
         ])
         
+#         # PATCH update: Enhanced prompt with reasoning instructions
+#         enhanced_prompt = f"""You are an expert assistant with deep analytical capabilities.
+
+# Context from documents:
+# {context}
+
+# Question: {question}
+
+# Instructions:
+# 1. Analyze the provided context carefully to find relevant information
+# 2. If the answer is not directly stated, infer from related information and context clues
+# 3. Combine information from multiple sources if the answer is split across documents
+# 4. Be comprehensive but accurate and add some descriptive answers if needed - cite which sources support your answer
+# 5. If you cannot answer based on the context, explicitly state what information is missing
+
+# Provide a detailed, well-reasoned answer:"""
+        # PATCH: Replace the enhanced_prompt block in rag.py's query method (around line 297)
+
         # PATCH update: Enhanced prompt with reasoning instructions
         enhanced_prompt = f"""You are an expert assistant with deep analytical capabilities.
 
@@ -455,15 +473,28 @@ Context from documents:
 
 Question: {question}
 
-Instructions:
-1. Analyze the provided context carefully to find relevant information
-2. If the answer is not directly stated, infer from related information and context clues
-3. Combine information from multiple sources if the answer is split across documents
-4. Be comprehensive but accurate and add some descriptive answers if needed - cite which sources support your answer
-5. If you cannot answer based on the context, explicitly state what information is missing
+**Your Task:**
+Provide a detailed, well-reasoned answer to the **Question** using *only* the **Context from documents**.
 
-Provide a detailed, well-reasoned answer:"""
-        
+**Instructions:**
+
+1.  **"Not Found" Rule:** If you cannot answer the question based *only* on the provided context, you MUST respond with the exact phrase:
+    "I couldn’t find this information in the provided documents."
+    Do not add any other text.
+
+2.  **Analysis:** If the answer is in the context, analyze it carefully. Infer from related clues and combine information from multiple sources if needed.
+
+3.  **Citation:** You MUST cite *every* piece of information you use. Place the citation (e.g., [source_filename.pdf]) directly after the fact or sentence it supports.
+
+4.  **Formatting (Very Important):**
+    * Structure your answer using **Markdown**.
+    * Use **bullet points** (`*`) for lists or key features.
+    * Use **numbered lists** (`1.`) for steps or sequences.
+    * Use **tables** if the question asks for comparisons or structured data.
+    * Use **bold text** (`**bold**`) for emphasis.
+    * Use new paragraphs (a blank line) for separation.
+
+**Answer:**"""
         response = self.llm.invoke(enhanced_prompt)
         
         return {
