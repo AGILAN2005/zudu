@@ -456,7 +456,7 @@ Context from documents:
 Question: {question}
 
 Instructions:
-1. Analyze the provided context carefully to find relevant information
+1. Analyze the provided context carefully to find relevant informations.
 2. If the answer is not directly stated, infer from related information and context clues
 3. Combine information from multiple sources if the answer is split across documents
 4. Be comprehensive but accurate and add some descriptive answers if needed - cite which sources support your answer
