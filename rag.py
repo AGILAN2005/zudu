@@ -21,7 +21,7 @@ class HeirarchicalChunker:
     def __init__(
             self,
             parent_chunk_size: int = 2000,
-            parent_overlap: int = 200,
+            parent_overlap: int = 400,
             child_chunk_size: int = 500,
             child_overlap: int = 50,
     ):
@@ -68,7 +68,7 @@ class HeirarchicalChunker:
                     **metadata,
                     "parent_chunk_id":parent_idx,
                     "child_chunk_id":child_idx,
-                    "parent_content":parent_docs.page_content[:200],
+                    "parent_content":parent_docs.page_content[:300],
                     "hierarchy_level":"child"
                 }
                 hierarchical_docs.append(
@@ -210,22 +210,56 @@ class RAGSystem:
             self,
             llm_provider:str="gemini",
             vector_store_type:str="faiss",
-            model_name:Optional[str]=None,):
+            embedding_model:str="bge-large",
+            use_reranker:bool=True,
+            reranker_model:str="bge-reranker-large",
+            use_query_expansion:bool=True,
+            expansion_strategy:str="multiquery",
+            model_name:Optional[str]=None,
+            
+        ):
         """
         Initialize RAG system.
         Args:
             llm_provider: LLM provider to use ("gemini" or "openai").
             vector_store_type: Type of vector store ("faiss" or "chroma").
+            embedding_model: 'bge-large', 'e5-large', 'minilm', etc.
+            use_reranker: Enable reranking for better relevance
+            reranker_model: Reranker model to use
+            use_query_expansion: Enable query expansion
+            expansion_strategy: 'multiquery', 'hyde', or 'subquestions'
             model_name: Optional model name for embeddings.
         """
         self.llm_provider=llm_provider
         self.vector_store_type=vector_store_type
+        self.use_reranker = use_reranker  # PATCH update
+        self.use_query_expansion = use_query_expansion  # PATCH update
+        self.expansion_strategy = expansion_strategy  # PATCH update
 
-        self.embedding_function=get_embedding_function()
+        # PATCH update: Initialize with advanced embedding model
+        print(f"🔧 Initializing embedding model: {embedding_model}")
+        self.embedding_function = get_embedding_function(
+            model_name=embedding_model,
+            device='cpu'
+        )
+        # self.embedding_function=get_embedding_function()
+
         self.chunker=HeirarchicalChunker()
         self.pdf_processor=PDFProcessor()
         self.vector_store_manager=VectorStoreManager(self.embedding_function)
 
+        # PATCH update: Initialize reranker if enabled
+        if self.use_reranker:
+            print(f"🔧 Initializing reranker: {reranker_model}")
+            self.reranker = get_reranker(
+                model_name=reranker_model,
+                top_n=5
+            )
+        # PATCH update: Initialize query expander if enabled
+        if self.use_query_expansion:
+            print(f"🔧 Initializing query expander: {expansion_strategy}")
+            self.query_expander = get_query_expander(llm_provider=llm_provider)
+        
         self.llm=self._initialize_llm(model_name)
 
         self.vector_store=None
@@ -250,6 +284,7 @@ class RAGSystem:
             raise NotImplementedError("Llama provider not implemented yet.")
         else:
             raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
+        
     def ingest_documents(self,pdf_paths:List[str])->int:
         """
         Ingest multiple PDF documents into the RAG system.
@@ -283,6 +318,74 @@ class RAGSystem:
         
         self._create_qa_chain()
         return len(all_chunks)
+    
+    def _retrieve_with_expansion(
+        self,
+        query: str,
+        k: int = 10
+    ) -> List[Document]:
+        """
+        # PATCH update: New retrieval method with query expansion support
+        Retrieve documents with optional query expansion
+        """
+        
+        if not self.use_query_expansion:
+            # Standard retrieval
+            return self.vector_store.similarity_search(query, k=k)
+        
+        # PATCH update: Query expansion logic
+        if self.expansion_strategy == "multiquery":
+            queries = self.query_expander.expand_query_multiquery(query, num_queries=2)
+            print(f"📝 Expanded queries: {queries}")
+            
+            # Retrieve for each query and combine
+            all_docs = []
+            for q in queries:
+                docs = self.vector_store.similarity_search(q, k=k//len(queries))
+                all_docs.extend(docs)
+            
+            # Deduplicate based on content
+            seen = set()
+            unique_docs = []
+            for doc in all_docs:
+                content_hash = hash(doc.page_content)
+                if content_hash not in seen:
+                    seen.add(content_hash)
+                    unique_docs.append(doc)
+            
+            return unique_docs[:k]
+        
+        elif self.expansion_strategy == "hyde":
+            original_query, hypothetical = self.query_expander.expand_query_hyde(query)
+            print(f"📝 HyDE hypothetical: {hypothetical[:150]}...")
+            
+            # Search using hypothetical document
+            docs = self.vector_store.similarity_search(hypothetical, k=k)
+            return docs
+        
+        elif self.expansion_strategy == "subquestions":
+            subquestions = self.query_expander.expand_query_subquestions(query, max_subquestions=3)
+            print(f"📝 Sub-questions: {subquestions}")
+            
+            # Retrieve for each sub-question
+            all_docs = []
+            for q in subquestions:
+                docs = self.vector_store.similarity_search(q, k=k//len(subquestions))
+                all_docs.extend(docs)
+            
+            # Deduplicate
+            seen = set()
+            unique_docs = []
+            for doc in all_docs:
+                content_hash = hash(doc.page_content)
+                if content_hash not in seen:
+                    seen.add(content_hash)
+                    unique_docs.append(doc)
+            
+            return unique_docs[:k]
+        
+        return self.vector_store.similarity_search(query, k=k)
+    
     def _create_qa_chain(self):
         """Create QA chain with custom prompt."""
 
@@ -311,22 +414,82 @@ Answer the question comprehensively based on the context provided
             chain_type_kwargs={"prompt":PROMPT},
             return_source_documents=True,
         )
-    def query(self,question:str)->Dict[str,Any]:
-            """
-        Query the RAG system with a question.
-        Args:
-            question: User question.
-        Returns:
-            Dictionary with 'answer' and 'source_documents'.
+    def query(self, question: str, k: int = 10) -> Dict[str, Any]:
         """
-            if not self.qa_chain:
-                raise ValueError("No documents ingested. Call ingest_documents() first")
-            result=self.qa_chain.invoke(question)
-            return {
-                "answer":result['result'],
-                "source_documents":result['source_documents'],
-                'num_sources': len(result['source_documents'])
-            }
+        # PATCH update: Enhanced query with retrieval + reranking pipeline
+        Enhanced query with retrieval + reranking
+        
+        Args:
+            question: User question
+            k: Number of initial documents to retrieve
+            
+        Returns:
+            Dictionary with answer and sources
+        """
+        if not self.vector_store:
+            raise ValueError("No documents ingested")
+        
+        # PATCH update: Step 1 - Retrieve with expansion
+        retrieved_docs = self._retrieve_with_expansion(question, k=k)
+        print(f"🔍 Retrieved {len(retrieved_docs)} documents")
+        
+        # PATCH update: Step 2 - Rerank if enabled
+        if self.use_reranker and len(retrieved_docs) > 0:
+            reranked_docs = self.reranker.rerank_documents(question, retrieved_docs)
+            print(f"🎯 Reranked to top {len(reranked_docs)} documents")
+            context_docs = reranked_docs
+        else:
+            context_docs = retrieved_docs[:5]
+        
+        # PATCH update: Step 3 - Generate answer with enhanced prompt
+        context = "\n\n".join([
+            f"[Source: {doc.metadata.get('source', 'Unknown')}]\n{doc.page_content}"
+            for doc in context_docs
+        ])
+        
+        # PATCH update: Enhanced prompt with reasoning instructions
+        enhanced_prompt = f"""You are an expert assistant with deep analytical capabilities.
+
+Context from documents:
+{context}
+
+Question: {question}
+
+Instructions:
+1. Analyze the provided context carefully to find relevant information
+2. If the answer is not directly stated, infer from related information and context clues
+3. Combine information from multiple sources if the answer is split across documents
+4. Be comprehensive but accurate - cite which sources support your answer
+5. If you cannot answer based on the context, explicitly state what information is missing
+
+Provide a detailed, well-reasoned answer:"""
+        
+        response = self.llm.invoke(enhanced_prompt)
+        
+        return {
+            'answer': response.content,
+            'source_documents': context_docs,
+            'num_sources': len(context_docs),
+            'num_retrieved': len(retrieved_docs)
+        }
+    
+    
+    # def query(self,question:str)->Dict[str,Any]:
+    #         """
+    #     Query the RAG system with a question.
+    #     Args:
+    #         question: User question.
+    #     Returns:
+    #         Dictionary with 'answer' and 'source_documents'.
+    #     """
+    #         if not self.qa_chain:
+    #             raise ValueError("No documents ingested. Call ingest_documents() first")
+    #         result=self.qa_chain.invoke(question)
+    #         return {
+    #             "answer":result['result'],
+    #             "source_documents":result['source_documents'],
+    #             'num_sources': len(result['source_documents'])
+    #         }
     def query_with_sources(self,question:str)->Dict[str,Any]:
             """ Query and format response with sources
         
