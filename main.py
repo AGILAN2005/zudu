@@ -1,12 +1,15 @@
 import os
 import asyncio
-from typing import AsyncGenerator,Optional
+import uuid
+import shutil
+from typing import AsyncGenerator, Optional, List, Dict
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI,HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 from rag import RAGSystem
@@ -16,7 +19,15 @@ from query_expansion import get_query_expander
 
 load_dotenv('.env')
 
-rag_system:Optional[RAGSystem]=None
+# A default global RAG system (used for quick tests / single-chat setups)
+rag_system: Optional[RAGSystem] = None
+
+# Dictionary of per-chat RAG systems keyed by chat_id
+rag_systems: Dict[str, RAGSystem] = {}
+
+# Simple in-memory chat history store; each chat_id maps to a list of messages
+# Message format: {"role": "user"|"assistant", "content": str, "sources": Optional[list]}
+chat_histories: Dict[str, List[dict]] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global rag_system
@@ -61,6 +72,7 @@ class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, description="User question")
     k: int = Field(default=10, ge=1, le=50, description="Number of documents to retrieve")
     stream: bool = Field(default=True, description="Enable streaming response")
+    chat_id: Optional[str] = Field(default=None, description="Chat id to scope the query to uploaded documents")
 class IngestRequest(BaseModel):
     pdf_paths: list[str] = Field(..., description="List of PDF file paths to ingest")
 
@@ -150,7 +162,7 @@ Provide a detailed, well-reasoned answer:"""
         # Step 4: Stream LLM response
         response = await asyncio.to_thread(rag_system.llm.invoke, enhanced_prompt)
         answer_text = response.content
-        
+
         # Stream answer word by word
         words = answer_text.split()
         for i, word in enumerate(words):
@@ -176,6 +188,49 @@ Provide a detailed, well-reasoned answer:"""
     except Exception as e:
         yield f"data: {{\"type\": \"error\", \"content\": \"Error: {str(e)}\"}}\n\n"
 
+
+async def generate_stream_for_chat(question: str, k: int, chat_id: Optional[str]) -> AsyncGenerator[str, None]:
+    """Wrapper that selects the appropriate RAG system by chat_id and records history."""
+    global rag_system, rag_systems, chat_histories
+
+    # Select RAG system
+    if chat_id:
+        rag = rag_systems.get(chat_id)
+        if not rag:
+            yield f"data: {{\"type\": \"error\", \"content\": \"Error: Chat id {chat_id} not found\"}}\n\n"
+            return
+    else:
+        rag = rag_system
+
+    # Record user message in history
+    if chat_id:
+        chat_histories.setdefault(chat_id, []).append({"role": "user", "content": question})
+
+    try:
+        # Reuse existing generate_stream but with local rag_system binding
+        # Temporarily set the global rag_system expected by generate_stream
+        old = globals().get('rag_system')
+        globals()['rag_system'] = rag
+        async for chunk in generate_stream(question, k):
+            yield chunk
+
+        # After streaming, fetch non-stream result to capture sources cleanly
+        result = rag.query(question, k=k)
+        # Record assistant message
+        assistant_entry = {"role": "assistant", "content": result['answer'], "sources": [
+            {"source": d.metadata.get('source', 'Unknown'), "parent_chunk": d.metadata.get('parent_chunk_id', 'N/A')}
+            for d in result['source_documents']
+        ]}
+        if chat_id:
+            chat_histories.setdefault(chat_id, []).append(assistant_entry)
+
+        # restore global rag_system
+        globals()['rag_system'] = old
+
+    except Exception as e:
+        yield f"data: {{\"type\": \"error\", \"content\": \"Error: {str(e)}\"}}\n\n"
+
+
 @app.post("/query")
 async def query_documents(request: QueryRequest):
     """Query documents with optional streaming"""
@@ -185,9 +240,16 @@ async def query_documents(request: QueryRequest):
     if not rag_system.vector_store:
         raise HTTPException(status_code=400, detail="No documents ingested. Please ingest documents first.")
     
+    # Select rag system based on chat_id if provided
+    selected_rag = rag_system
+    if request.chat_id:
+        selected_rag = rag_systems.get(request.chat_id)
+        if not selected_rag:
+            raise HTTPException(status_code=404, detail=f"Chat id {request.chat_id} not found")
+
     if request.stream:
         return StreamingResponse(
-            generate_stream(request.question, request.k),
+            generate_stream_for_chat(request.question, request.k, request.chat_id),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -196,8 +258,16 @@ async def query_documents(request: QueryRequest):
             }
         )
     else:
-        # Non-streaming response
-        result = rag_system.query(request.question, k=request.k)
+        # Non-streaming response using selected rag
+        result = selected_rag.query(request.question, k=request.k)
+        # Record to history if chat_id provided
+        if request.chat_id:
+            chat_histories.setdefault(request.chat_id, []).append({"role": "user", "content": request.question})
+            chat_histories.setdefault(request.chat_id, []).append({"role": "assistant", "content": result['answer'], "sources": [
+                {"source": doc.metadata.get('source', 'Unknown'), "parent_chunk": doc.metadata.get('parent_chunk_id', 'N/A')}
+                for doc in result['source_documents']
+            ]})
+
         return {
             "answer": result['answer'],
             "sources": [
@@ -209,6 +279,67 @@ async def query_documents(request: QueryRequest):
             ],
             "num_sources": result['num_sources']
         }
+
+
+@app.post('/upload')
+async def upload_and_create_chat(files: List[UploadFile] = File(...)):
+    """Upload multiple PDF files, create a new chat id, ingest documents and persist vector store under that chat id."""
+    global rag_systems, chat_histories
+
+    if not files:
+        raise HTTPException(status_code=400, detail='No files uploaded')
+
+    chat_id = str(uuid.uuid4())
+    base_dir = Path(os.getenv('VECTOR_STORE_PATH', './vector_store')) / chat_id
+    upload_dir = base_dir / 'uploads'
+    os.makedirs(upload_dir, exist_ok=True)
+
+    saved_paths = []
+    try:
+        for upload in files:
+            filename = Path(upload.filename).name
+            dest = upload_dir / filename
+            with open(dest, 'wb') as f:
+                shutil.copyfileobj(upload.file, f)
+            saved_paths.append(str(dest))
+
+        # Create a per-chat RAG system instance
+        chat_rag = RAGSystem(
+            llm_provider="gemini",
+            vector_store_type="faiss",
+            embedding_model="bge-large",
+            use_reranker=True,
+            reranker_model="bge-reranker-large",
+            use_query_expansion=True,
+            expansion_strategy="multiquery",
+            model_name="gemini-2.5-flash"
+        )
+
+        num_chunks = chat_rag.ingest_documents(saved_paths)
+        # persist vector store for this chat
+        chat_rag.save_vector_store(str(base_dir))
+
+        # register
+        rag_systems[chat_id] = chat_rag
+        chat_histories[chat_id] = []
+
+        return {"status": "success", "chat_id": chat_id, "num_chunks": num_chunks, "num_documents": len(saved_paths)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload/ingest failed: {str(e)}")
+
+
+@app.get('/chats')
+async def list_chats():
+    """Return list of active chat ids."""
+    return [{"chat_id": k, "num_messages": len(v)} for k, v in chat_histories.items()]
+
+
+@app.get('/chats/{chat_id}/history')
+async def get_chat_history(chat_id: str):
+    history = chat_histories.get(chat_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail='Chat not found')
+    return {"chat_id": chat_id, "history": history}
 
 if __name__ == "__main__":
     import uvicorn
