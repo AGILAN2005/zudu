@@ -1,5 +1,5 @@
 // src/components/ChatWindow.tsx
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect} from 'react'
 import {
   Box,
   VStack,
@@ -17,8 +17,10 @@ import {
   Badge,
   Input,
   Divider as Sep,
+  Link, // Import Link
 } from '@chakra-ui/react'
 import { FiMenu, FiArrowLeft, FiSend } from 'react-icons/fi'
+import MarkdownRenderer from './MarkdownRenderer' // Import new component
 
 // Types
 interface Message {
@@ -47,6 +49,24 @@ interface ChatWindowProps {
   onInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void
   onSubmit: (e: React.FormEvent) => void
 }
+
+// Helper to generate the source map for the reference list
+const getSourceMap = (sources: Source[] = []) => {
+  const sourceMap = new Map<string, number>()
+  let sourceCounter = 1
+  const uniqueSourceFiles = sources
+    .map(s => s.source)
+    .filter((value, index, self) => self.indexOf(value) === index);
+  
+  uniqueSourceFiles.forEach(sourceFile => {
+    if (!sourceMap.has(sourceFile)) {
+      sourceMap.set(sourceFile, sourceCounter)
+      sourceCounter++
+    }
+  })
+  return sourceMap
+}
+
 
 export default function ChatWindow({
   isSidebarOpen,
@@ -110,65 +130,92 @@ export default function ChatWindow({
             </Box>
           )}
 
-          {messages.map(msg => (
-            <ScaleFade key={msg.id} in>
-              <Flex
-                justify={msg.type === 'user' ? 'flex-end' : 'flex-start'}
-              >
-                <HStack
-                  spacing={3}
-                  align="flex-start"
-                  maxW="85%"
+          {messages.map(msg => {
+            // Generate the source map for this message
+            const sourceMap = getSourceMap(msg.sources)
+            
+            return (
+              <ScaleFade key={msg.id} in>
+                <Flex
+                  justify={msg.type === 'user' ? 'flex-end' : 'flex-start'}
                 >
-                  {msg.type === 'assistant' && (
-                    <Avatar size="sm" name="AI" bg="gray.400" />
-                  )}
-
-                  <Card
-                    bg={msg.type === 'user' ? 'brand.500' : 'white'}
-                    color={msg.type === 'user' ? 'white' : 'gray.800'}
-                    p={4}
-                    borderRadius="lg"
-                    shadow="sm"
-                    width="fit-content"
+                  <HStack
+                    spacing={3}
+                    align="flex-start"
+                    maxW="85%"
                   >
-                    <Text whiteSpace="pre-wrap" overflowWrap="anywhere">
-                      {msg.content}
-                    </Text>
-
-                    {msg.isStreaming && (
-                      <HStack mt={3} spacing={2}>
-                        <Spinner size="sm" color="brand.500" />
-                        <Text fontSize="sm" opacity={0.8} color="brand.700">
-                          {streamingStatus || 'Generating…'}
-                        </Text>
-                      </HStack>
+                    {msg.type === 'assistant' && (
+                      <Avatar size="sm" name="AI" bg="gray.400" />
                     )}
 
-                    {msg.sources?.length ? (
-                      <>
-                        <Sep my={3} />
-                        <Box>
-                          <Text fontWeight="semibold" fontSize="sm" mb={1}>
-                            Sources
-                          </Text>
-                          <List spacing={1} fontSize="sm">
-                            {msg.sources.map(s => (
-                              <li key={s.id}>• {s.source}</li>
-                            ))}
-                          </List>
-                        </Box>
-                      </>
-                    ) : null}
-                  </Card>
+                    <Card
+                      bg={msg.type === 'user' ? 'brand.500' : 'white'}
+                      color={msg.type === 'user' ? 'white' : 'gray.800'}
+                      p={4}
+                      borderRadius="lg"
+                      shadow="sm"
+                      width="fit-content"
+                      overflow="hidden" // Ensures markdown doesn't break layout
+                    >
+                      {/* Use MarkdownRenderer for assistant, plain text for user */}
+                      {msg.type === 'user' ? (
+                         <Text whiteSpace="pre-wrap" overflowWrap="anywhere">
+                           {msg.content}
+                         </Text>
+                      ) : (
+                        <MarkdownRenderer content={msg.content} sources={msg.sources || []} />
+                      )}
 
-                  {msg.type === 'user' && (
-                    <Avatar size="sm" name="You" bg="brand.500" />
-                  )}
-                </HStack>
-              </Flex>
-            </ScaleFade>
-          ))}
+
+                      {msg.isStreaming && (
+                        <HStack mt={3} spacing={2}>
+                          <Spinner size="sm" color="brand.500" />
+                          <Text fontSize="sm" opacity={0.8} color={msg.type === 'user' ? 'whiteAlpha.800' : 'brand.700'}>
+                            {streamingStatus || 'Generating…'}
+                          </Text>
+                        </HStack>
+                      )}
+
+                      {/* --- UPDATED SOURCES SECTION --- */}
+                      {msg.sources?.length && sourceMap.size > 0 ? (
+                        <>
+                          <Sep my={3} />
+                          <Box>
+                            <Text fontWeight="semibold" fontSize="sm" mb={2}>
+                              Sources
+                            </Text>
+                            <List spacing={2} fontSize="sm">
+                              {/* Loop over the generated map */}
+                              {Array.from(sourceMap.entries()).map(([sourceFile, sourceNum]) => (
+                                <li key={sourceFile} id={`source-${sourceNum}`}> {/* Add anchor ID */}
+                                  <HStack spacing={2} align="baseline">
+                                    <Badge colorScheme="gray" fontSize="0.7em" variant="solid" borderRadius="full" px="2">
+                                      {sourceNum}
+                                    </Badge>
+                                    <Text>
+                                      {/* Link to the anchor */}
+                                      <Link href={`#source-${sourceNum}`} _hover={{textDecoration: 'none'}}>
+                                        {sourceFile}
+                                      </Link>
+                                    </Text>
+                                  </HStack>
+                                </li>
+                              ))}
+                            </List>
+                          </Box>
+                        </>
+                      ) : null}
+                      
+                    </Card>
+
+                    {msg.type === 'user' && (
+                      <Avatar size="sm" name="You" bg="brand.500" />
+                    )}
+                  </HStack>
+                </Flex>
+              </ScaleFade>
+            )
+          })}
           <div ref={messagesEndRef} />
         </VStack>
       </Box>
