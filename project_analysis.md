@@ -124,6 +124,32 @@ This is a Retrieval-Augmented Generation (RAG) system implemented as a full-stac
    - Multi-language queries
    - Queries with code snippets
    - Rapid successive queries
+   
+   # Example Test Case (from history.json):
+   Q1: "What is the function of heart in a living organism"
+   Response: "The function of the heart in a living organism is primarily as a pump in the circulatory system [Heart.pdf]. Specifically, the heart:
+   * Pumps blood through the blood vessels
+   * Functions as a pump to provide a continuous flow
+   * Contracts to pump blood
+   * Enables the pumped blood to carry oxygen and nutrients to the tissue
+   * Enables the pumped blood to carry metabolic waste such as carbon dioxide to the lungs"
+   - Tests source attribution
+   - Tests markdown formatting
+   - Tests multi-point response generation
+   
+   Q2: "how kidney works"
+   Response: "I couldn't find this information in the provided documents."
+   - Tests handling of queries with no relevant documents
+   - Tests graceful failure response
+   
+   Q3: "can i use MRI to scan the heart"
+   Response: "Yes, MRI can be used to scan the heart.
+   * Several imaging methods, including MRI, can be used to assess the anatomy and function of the heart [Heart.pdf]
+   * Cardiac MRI is a technique that can assess the structure and function of the heart [Magnetic resonance imaging.pdf]
+   * It is complementary to other imaging techniques like echocardiography, cardiac CT, and nuclear medicine
+   * Applications of cardiac MRI include assessing myocardial ischemia and viability, cardiomyopathies, myocarditis, iron overload, vascular diseases, and congenital heart disease"
+   - Tests multi-document retrieval (Heart.pdf, MRI.pdf)
+   - Tests contextual response generation
    ```
 
 3. **Chat Session Management**
