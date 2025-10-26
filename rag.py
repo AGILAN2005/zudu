@@ -12,6 +12,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from embeddings import get_embedding_function
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
+from reranker import get_reranker
+from query_expansion import get_query_expander
 load_dotenv('.env')
 
 class HeirarchicalChunker:
