@@ -8,3 +8,8 @@ langchain_huggingface
 langchain-text-splitters
 sentence-transformers
 python-dotenv
+numpy
+FlagEmbedding==1.2.10
+flashrank==0.2.4
+cohere==4.37
+openai==1.12.0
