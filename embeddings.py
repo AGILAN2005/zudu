@@ -114,7 +114,13 @@ class FlagEmbeddingWrapper:
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed documents"""
         return self.flag_model.encode(texts).tolist()
-
+    # PATCH update: Add __call__ method for FAISS compatibility
+    def __call__(self, text: str) -> List[float]:
+        """
+        Make the wrapper callable for FAISS compatibility
+        FAISS expects embedding_function(text) to work
+        """
+        return self.embed_query(text)
 
 def get_embedding_function(model_name:str='bge-large',device:str='cpu'):
     """
