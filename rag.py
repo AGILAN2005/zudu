@@ -473,8 +473,12 @@ Context from documents:
 
 Question: {question}
 
-**Your Task:**
-Provide a detailed, well-reasoned answer to the **Question** using *only* the **Context from documents**.
+Instructions:
+1. Analyze the provided context carefully to find relevant informations.
+2. If the answer is not directly stated, infer from related information and context clues
+3. Combine information from multiple sources if the answer is split across documents
+4. Be comprehensive but accurate and add some descriptive answers if needed - cite which sources support your answer
+5. If you cannot answer based on the context, explicitly state what information is missing
 
 **Instructions:**
 
@@ -505,22 +509,6 @@ Provide a detailed, well-reasoned answer to the **Question** using *only* the **
         }
     
     
-    # def query(self,question:str)->Dict[str,Any]:
-    #         """
-    #     Query the RAG system with a question.
-    #     Args:
-    #         question: User question.
-    #     Returns:
-    #         Dictionary with 'answer' and 'source_documents'.
-    #     """
-    #         if not self.qa_chain:
-    #             raise ValueError("No documents ingested. Call ingest_documents() first")
-    #         result=self.qa_chain.invoke(question)
-    #         return {
-    #             "answer":result['result'],
-    #             "source_documents":result['source_documents'],
-    #             'num_sources': len(result['source_documents'])
-    #         }
     def query_with_sources(self,question:str)->Dict[str,Any]:
             """ Query and format response with sources
         
