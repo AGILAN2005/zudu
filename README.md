@@ -45,7 +45,8 @@ Prerequisites:
 1. Create and activate a virtual environment (PowerShell):
 
 ```powershell
-cd <path-to-repo>
+git clone https://github.com/AGILAN2005/zudu.git
+cd zudu
 python -m venv .venv
 # activate the venv
 . .\.venv\Scripts\Activate.ps1
@@ -58,7 +59,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-3. (Optional) Create a `.env` in the repo root or set required environment variables. The project may require credentials for external APIs (for example OPENAI_API_KEY or similar). Add any keys the services expect as environment variables before starting the server.
+3. Create a `.env` in the repo root or set required environment variables. The project may require credentials for external APIs (for example GEMINI_API_KEY or similar). Add any keys the services expect as environment variables before starting the server.
 
 4. Start the backend API in development mode:
 
@@ -76,12 +77,13 @@ The server listens on port 8000 by default. You can check the OpenAPI docs at ht
 1. Install frontend dependencies and run dev server:
 
 ```powershell
+git clone https://github.com/AGILAN2005/zudu.git
 cd frontend
 npm ci
 npm run dev
 ```
 
-Vite typically serves the frontend dev server on http://localhost:3000 (check the console output after `npm run dev`).
+It typically serves the frontend dev server on http://localhost:3000 (check the console output after `npm run dev`).
 
 2. To build a production frontend bundle:
 
@@ -108,7 +110,6 @@ This will build images and start containers as configured. Check `docker-compose
 To run the server:
 
 ```powershell
-# rebuild and run only the backend service defined in docker-compose
 make up
 ```
 
@@ -117,13 +118,3 @@ To stop and remove containers created by compose:
 ```powershell
 make down
 ```
-
-Notes:
-- If you prefer the newer Docker CLI alias, replace `docker-compose` with `docker compose`.
-- If the app requires environment variables (API keys, etc.), create a `.env` file or ensure the variables are available to the Docker Compose environment (see `docker-compose.yml`).
-
-### Useful tips
-- If you need to inspect or re-create the FAISS index, look in the `vector_store/` directory — this repo persists indexes and uploads there by default.
-- If you change Python dependencies, update `requirements.txt` (and rebuild containers when using Docker).
-
-If anything in these instructions doesn't work for your environment, tell me what fails (error text and OS) and I will help refine the steps.
