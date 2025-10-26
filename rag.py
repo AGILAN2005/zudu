@@ -459,7 +459,7 @@ Instructions:
 1. Analyze the provided context carefully to find relevant information
 2. If the answer is not directly stated, infer from related information and context clues
 3. Combine information from multiple sources if the answer is split across documents
-4. Be comprehensive but accurate - cite which sources support your answer
+4. Be comprehensive but accurate and add some descriptive answers if needed - cite which sources support your answer
 5. If you cannot answer based on the context, explicitly state what information is missing
 
 Provide a detailed, well-reasoned answer:"""
